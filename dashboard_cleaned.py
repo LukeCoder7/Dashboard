@@ -4,6 +4,9 @@ from tkinter import ttk
 import calendar
 from datetime import datetime
 import requests
+import json
+
+calendar.setfirstweekday(calendar.SUNDAY)
 
 #setup
 root = tk.Tk()
@@ -412,8 +415,12 @@ update_button = tk.Button(
     progress_card,
     text="Update Progress",
     command=update_total_progress,
-    bg="#3A6EA5",
-    fg="white"
+    #bg="#3A6EA5", 
+    #fg="black",
+    #activebackground="#4A7EB5",
+    #activeforeground="white",
+    #relief="flat",
+    #borderwidth=0
 )
 update_button.pack(pady=10)
 
@@ -452,6 +459,8 @@ for goal in goals:
         command=update_total_progress,
         bg="#2b2b2b",
         fg="white",
+        #selectcolor="#2b2b2b",
+        #activebackground="#2b2b2b",
         font=("Arial", 20)
     )
 
@@ -519,9 +528,13 @@ for habits, (current, goal) in progress.items():
     
     #display editable fractions
     current_entry = tk.Entry(
-    frame,
-    width=4,
-    font=("Arial", 12)
+        frame,
+        width=4,
+        font=("Arial", 12),
+        #bg="#444444",
+        #fg="white",
+        #insertbackground="white",
+        #relief="flat"
     )
     current_entry.insert(0, str(current))
     current_entry.pack(side="left", padx=5)
@@ -535,9 +548,13 @@ for habits, (current, goal) in progress.items():
     slash.pack(side="left")
     
     goal_entry = tk.Entry(
-    frame,
-    width=4,
-    font=("Arial", 12)
+        frame,
+        width=4,
+        font=("Arial", 12),
+        #bg="#444444",
+        #fg="white",
+        #insertbackground="white",
+        #relief="flat"
     )
     goal_entry.insert(0, str(goal))
     goal_entry.pack(side="left", padx=5)
@@ -578,14 +595,26 @@ button_frame.pack()
 prev_button = tk.Button(
     button_frame,
     text="<",
-    command=previous_month
+    command=previous_month,
+    #bg="#3A6EA5",
+    #fg="white",
+    #activebackground="#4A7EB5",
+    #activeforeground="white",
+    #relief="flat",
+    #borderwidth=0
 )
 prev_button.pack(side="left")
 
 next_button = tk.Button(
     button_frame,
     text=">",
-    command=next_month
+    command=next_month,
+    #bg="#3A6EA5",
+    #fg="white",
+    #activebackground="#4A7EB5",
+    #activeforeground="white",
+    #relief="flat",
+    #borderwidth=0
 )
 next_button.pack(side="left")
 
