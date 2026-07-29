@@ -2,7 +2,7 @@
 import tkinter as tk
 from tkinter import ttk
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 import json
 import os
@@ -133,6 +133,29 @@ def update_total_progress():
         text=f"{progress_percent}%"
     )
     save_data()
+    redraw_calendar()
+
+    for i, label_text in enumerate(progress.keys()):
+        try:
+            current = int(progress_entries[i][0].get())
+            goal = int(progress_entries[i][1].get())
+        except ValueError:
+            continue
+
+        remaining = goal - current
+        days_left_now = (school_start - datetime.now()).days
+
+        if days_left_now > 0 and remaining > 0:
+            interval = days_left_now / remaining
+            if interval < 1:
+                rate = round(1 / interval)
+                desc = f"{rate} per day"
+            else:
+                desc = f"every {round(interval)} days"
+        else:
+            desc = "complete"
+
+        legend_desc_labels[i].config(text=f"{label_text} — {desc}")
     
 #positioning and making sections
 left_frame = tk.Frame(
@@ -556,6 +579,9 @@ for habits, (current, goal) in progress.items():
     current_entry.insert(0, str(current))
     current_entry.pack(side="left", padx=5)
     
+    #colors for progress dots
+    dot_colors = ["#3A6EA5", "#FF8C00", "#E53935"]
+    
     slash = tk.Label(
     frame,
     text="/",
@@ -692,7 +718,43 @@ events = [
     }
 ]
 
+#function that does math to get dates for progress
+def get_dot_dates():
+    today = datetime.now().date()
+    days_left = (school_start - datetime.now()).days
+    dot_dates = {}
+
+    for i, (label_text, (default_current, default_goal)) in enumerate(progress.items()):
+        try:
+            current = int(progress_entries[i][0].get())
+            goal = int(progress_entries[i][1].get())
+        except:
+            current = default_current
+            goal = default_goal
+
+        remaining = goal - current
+
+        if remaining <= 0 or days_left <= 0:
+            dot_dates[label_text] = set()
+            continue
+
+        interval = days_left / remaining
+        dates = set()
+
+        for j in range(remaining):
+            offset = round(j * interval)
+            dot_date = today + __import__('datetime').timedelta(days=offset)
+            dates.add(dot_date)
+
+        dot_dates[label_text] = dates
+
+    return dot_dates
+
 def draw_calendar():
+
+    #progress dots
+    dot_dates = get_dot_dates()
+    progress_labels = list(progress.keys())
 
     #day headers
     days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
@@ -770,24 +832,39 @@ def draw_calendar():
                 else:
                     bg_color = "#2b2b2b"
 
-            label = tk.Label(
+            cell = tk.Frame(
                 calendar_frame,
+                bg=bg_color,
+                #important/ change size of calendar
+                width=int(80 * scale),
+                height=int(45 * scale)
+            )
+            cell.grid(row=row_num + 1, column=col_num, padx=4, pady=4)
+            cell.pack_propagate(False)
+
+            day_label = tk.Label(
+                cell,
                 text=text,
                 bg=bg_color,
                 fg="white",
-                width=6,
-                height=3,
                 font=("Arial", int(14 * scale)),
-                wraplength= 50,
                 justify="center"
             )
+            day_label.pack()
 
-            label.grid(
-                row=row_num + 1,
-                column=col_num,
-                padx=4,
-                pady=4
-            )
+            if day != 0:
+                cell_date = datetime(display_year, display_month, day).date()
+                dots_frame = tk.Frame(cell, bg=bg_color)
+                dots_frame.pack()
+                for j, label_text in enumerate(progress_labels):
+                    if cell_date in dot_dates.get(label_text, set()):
+                        tk.Label(
+                            dots_frame,
+                            text="●",
+                            bg=bg_color,
+                            fg=dot_colors[j],
+                            font=("Arial", int(8 * scale))
+                        ).pack(side="left")
 
 draw_calendar()
 
@@ -814,6 +891,54 @@ events_title = tk.Label(
     font=("Arial", int(20 * scale), "bold")
 )
 events_title.pack(anchor="w")
+
+#progress dot legend
+legend_frame = tk.Frame(events_frame, bg="#2b2b2b")
+legend_frame.pack(anchor="w", pady=(10, 0))
+
+legend_desc_labels = []
+
+for i, label_text in enumerate(progress.keys()):
+    try:
+        current = int(progress_entries[i][0].get())
+        goal = int(progress_entries[i][1].get())
+    except:
+        current, goal = list(progress.values())[i]
+
+    remaining = goal - current
+    days_left_now = (school_start - datetime.now()).days
+
+    if days_left_now > 0 and remaining > 0:
+        interval = days_left_now / remaining
+        
+        if interval < 1:
+            rate = round(1 / interval)
+            desc = f"{rate} per day"
+        else:
+            desc = f"every {round(interval)} days"
+    else:
+        desc = "complete"
+
+    row = tk.Frame(legend_frame, bg="#2b2b2b")
+    row.pack(anchor="w", pady=3)
+
+    tk.Label(
+        row,
+        text="●",
+        bg="#2b2b2b",
+        fg=dot_colors[i],
+        font=("Arial", int(14 * scale))
+    ).pack(side="left", padx=(0, 6))
+
+    desc_label = tk.Label(
+        row,
+        text=f"{label_text} — {desc}",
+        bg="#2b2b2b",
+        fg="white",
+        font=("Arial", int(13 * scale))
+    )
+    desc_label.pack(side="left")
+    legend_desc_labels.append(desc_label)
 
 #make non accuring events visible
 today_full = datetime.now().date()
