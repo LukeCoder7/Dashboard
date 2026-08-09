@@ -13,6 +13,7 @@ calendar.setfirstweekday(calendar.SUNDAY)
 
 #setup
 root = tk.Tk()
+
 style = ttk.Style()
 style.theme_use("clam")
 
@@ -117,8 +118,8 @@ def update_total_progress():
             progress_bars[i]["value"] = current
         except ValueError:
             pass
-    
-    
+
+
     habit_percent = (
         current_total / goal_total
     ) * 100
@@ -156,7 +157,7 @@ def update_total_progress():
             desc = "complete"
 
         legend_desc_labels[i].config(text=f"{label_text} — {desc}")
-    
+
 #positioning and making sections
 left_frame = tk.Frame(
     main_frame,
@@ -304,7 +305,7 @@ def get_weather():
         )
 
         code = data["current"]["weather_code"]
-        
+
         humidity = data["current"]["relative_humidity_2m"]
 
         wind = round(
@@ -359,7 +360,7 @@ def get_weather():
         )
 
     except Exception as e:
-        
+
         print("Weather Error", e)
 
         return "❌\nWeather Error"
@@ -454,7 +455,7 @@ update_button = tk.Button(
     progress_card,
     text="Update Progress",
     command=update_total_progress,
-    #bg="#3A6EA5", 
+    #bg="#3A6EA5",
     #fg="black",
     #activebackground="#4A7EB5",
     #activeforeground="white",
@@ -535,7 +536,7 @@ for habits, (current, goal) in progress.items():
 
     frame = tk.Frame(mini_progress_card, bg ="#2b2b2b")
     frame.pack(fill="x",padx =20, pady=10)
-    
+
     #write
     label = tk.Label(
         frame,
@@ -548,14 +549,14 @@ for habits, (current, goal) in progress.items():
     )
     #label.pack(side = "left")
     label.pack(anchor="w")
-    
+
     #allow bar to go under
     bottom_frame = tk.Frame(
         frame,
         bg="#2b2b2b"
     )
     bottom_frame.pack(fill="x")
-    
+
     #make bar
     bar = ttk.Progressbar(
         bottom_frame,
@@ -565,7 +566,7 @@ for habits, (current, goal) in progress.items():
         value=current
     )
     bar.pack(side="left", padx=10)
-    
+
     #display editable fractions
     current_entry = tk.Entry(
         frame,
@@ -578,10 +579,10 @@ for habits, (current, goal) in progress.items():
     )
     current_entry.insert(0, str(current))
     current_entry.pack(side="left", padx=5)
-    
+
     #colors for progress dots
     dot_colors = ["#3A6EA5", "#FF8C00", "#E53935"]
-    
+
     slash = tk.Label(
     frame,
     text="/",
@@ -589,7 +590,7 @@ for habits, (current, goal) in progress.items():
     fg="white"
     )
     slash.pack(side="left")
-    
+
     goal_entry = tk.Entry(
         frame,
         width=4,
@@ -601,7 +602,7 @@ for habits, (current, goal) in progress.items():
     )
     goal_entry.insert(0, str(goal))
     goal_entry.pack(side="left", padx=5)
-    
+
     progress_entries.append(
     (current_entry, goal_entry)
     )
@@ -692,7 +693,7 @@ events = [
         "end_month": 6,
         "end_day": 6
     },
-    
+
     {
         "name": "Banana Ball",
         "start_month": 5,
@@ -700,7 +701,7 @@ events = [
         "end_month": 5,
         "end_day": 29
     },
-    
+
     {
         "name": "charleston",
         "start_month": 6,
@@ -708,13 +709,21 @@ events = [
         "end_month": 6,
         "end_day": 15
     },
-    
+
     {
         "name": "Lake Norman",
         "start_month": 6,
         "start_day": 15,
         "end_month": 6,
         "end_day": 21
+    },
+
+    {
+        "name": "wedding trip",
+        "start_month": 7,
+        "start_day": 3,
+        "end_month": 7,
+        "end_day": 19
     }
 ]
 
@@ -910,7 +919,7 @@ for i, label_text in enumerate(progress.keys()):
 
     if days_left_now > 0 and remaining > 0:
         interval = days_left_now / remaining
-        
+
         if interval < 1:
             rate = round(1 / interval)
             desc = f"{rate} per day"
@@ -950,7 +959,7 @@ visible_events = [
 
 #for date, event in events.items():
 for event in visible_events:
-    
+
     start = event["start_day"]
     end = event["end_day"]
     name = event["name"]
