@@ -7,7 +7,7 @@ import requests
 import json
 import os
 
-SAVE_FILE = "dashboard_save.json"
+SAVE_FILE = "json/dashboard_save.json"
 
 calendar.setfirstweekday(calendar.SUNDAY)
 
@@ -636,18 +636,17 @@ button_frame = tk.Frame(
     calendar_card,
     bg="#2b2b2b"
 )
-button_frame.pack()
 
 prev_button = tk.Button(
     button_frame,
     text="<",
     command=previous_month,
-    #bg="#3A6EA5",
-    #fg="white",
-    #activebackground="#4A7EB5",
-    #activeforeground="white",
-    #relief="flat",
-    #borderwidth=0
+    # bg="#3A6EA5",
+    # fg="black",
+    # activebackground="#4A7EB5",
+    # activeforeground="white",
+    # relief="flat",
+    # borderwidth=0
 )
 prev_button.pack(side="left")
 
@@ -655,15 +654,16 @@ next_button = tk.Button(
     button_frame,
     text=">",
     command=next_month,
-    #bg="#3A6EA5",
-    #fg="white",
-    #activebackground="#4A7EB5",
-    #activeforeground="white",
-    #relief="flat",
-    #borderwidth=0
+    # bg="#3A6EA5",
+    # fg="black",
+    # activebackground="#4A7EB5",
+    # activeforeground="black",
+    # relief="flat",
+    # borderwidth=0
 )
 next_button.pack(side="left")
 
+button_frame.pack()
 #change month string when switch
 monthstr = calendar.month_name[display_month].upper()
 
