@@ -125,6 +125,21 @@ DEFAULT_STEPPED_GOALS = {
     ],
 }
 
+#activities
+WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+ACTIVITY_COLOR = "#2f8f7f"
+
+# weekdays use Python's date.weekday(): Monday=0 ... Sunday=6
+DEFAULT_ACTIVITIES = {
+    PERIOD_SUMMER: [
+        {"name": "Tennis", "weekdays": [0, 2], "start_time": "17:00", "end_time": "19:00", "skipped_dates": []},
+    ],
+    PERIOD_SCHOOL_YEAR: [
+        {"name": "Robotics", "weekdays": [1, 3], "start_time": "16:00", "end_time": "18:00", "skipped_dates": []},
+    ],
+}
+
 #setup
 root = tk.Tk()
 
@@ -163,8 +178,11 @@ def build_default_period_data(period):
         "progress": [[str(c), str(g)] for c, g in DEFAULT_PROGRESS[period].values()],
         "events": [dict(e) for e in DEFAULT_EVENTS[period]],
         "stepped_goals": [[False] * len(g["steps"]) for g in DEFAULT_STEPPED_GOALS[period]],
+        "activities": [
+            {**a, "skipped_dates": list(a["skipped_dates"])}
+            for a in DEFAULT_ACTIVITIES[period]
+        ],
     }
-
 
 def load_all_data():
     if not os.path.exists(SAVE_FILE):
@@ -172,6 +190,7 @@ def load_all_data():
             {PERIOD_SUMMER: build_default_period_data(PERIOD_SUMMER),
              PERIOD_SCHOOL_YEAR: build_default_period_data(PERIOD_SCHOOL_YEAR)},
             detect_current_period(),
+            [],
         )
 
     try:
@@ -188,6 +207,7 @@ def load_all_data():
         return (
             {PERIOD_SUMMER: summer, PERIOD_SCHOOL_YEAR: build_default_period_data(PERIOD_SCHOOL_YEAR)},
             detect_current_period(),
+            raw.get("ideas", []),
         )
 
     data = {}
@@ -200,10 +220,9 @@ def load_all_data():
     if saved_period not in (PERIOD_SUMMER, PERIOD_SCHOOL_YEAR):
         saved_period = detect_current_period()
 
-    return data, saved_period
+    return data, saved_period, raw.get("ideas", [])
 
-
-app_data, current_period = load_all_data()
+app_data, current_period, idea_list = load_all_data()
 
 #Save data
 def save_data():
@@ -215,6 +234,7 @@ def save_data():
 
     payload = dict(app_data)
     payload["current_period"] = current_period
+    payload["ideas"] = idea_list
 
     with open(SAVE_FILE, "w") as f:
         json.dump(payload, f)
@@ -348,10 +368,70 @@ center_frame.pack(
 )
 right_frame.pack(
     side="left",
-    fill="y",
-    #expand=True
-    padx =(0, 15)
+    fill="both",
+    expand=True
+    #padx =(0, 15)
 )
+#switch to expand to position in middle and pad to fill specific space
+#fill actuslly changes size. if y then only specific
+#4th column
+fourth_frame = tk.Frame(main_frame, bg="#1e1e1e")
+fourth_frame.pack(side="left", fill="y")
+
+idea_card = create_card(fourth_frame)
+
+idea_title = tk.Label(
+    idea_card, text="RANDOM IDEAS", bg="#2b2b2b", fg="white",
+    font=("Arial", int(18 * scale), "bold")
+)
+idea_title.pack(anchor="w")
+
+idea_add_row = tk.Frame(idea_card, bg="#2b2b2b")
+idea_add_row.pack(fill="x", pady=(10, 0))
+
+idea_entry = tk.Entry(idea_add_row)
+idea_entry.pack(side="left", fill="x", expand=True)
+
+
+def add_idea():
+    text = idea_entry.get().strip()
+    if not text:
+        return
+    idea_list.append(text)
+    idea_entry.delete(0, tk.END)
+    save_data()
+    build_ideas_section()
+
+
+tk.Button(idea_add_row, text="Add", command=add_idea).pack(side="left", padx=(6, 0))
+
+idea_list_frame = tk.Frame(idea_card, bg="#2b2b2b")
+idea_list_frame.pack(fill="x", pady=(10, 0))
+
+
+def remove_idea(i):
+    del idea_list[i]
+    save_data()
+    build_ideas_section()
+
+
+def build_ideas_section():
+    for widget in idea_list_frame.winfo_children():
+        widget.destroy()
+
+    for i, text in enumerate(idea_list):
+        row = tk.Frame(idea_list_frame, bg="#2b2b2b")
+        row.pack(fill="x", pady=2)
+
+        tk.Label(
+            row, text=text, bg="#2b2b2b", fg="white", font=("Arial", int(13 * scale)),
+            anchor="w", wraplength=160, justify="left"
+        ).pack(side="left", fill="x", expand=True)
+
+        tk.Button(row, text="×", command=lambda i=i: remove_idea(i)).pack(side="right")
+
+
+build_ideas_section()
 
 #write title summer
 title = tk.Label(root, text="", font=("Arial", int(30 * scale), "bold"))
@@ -1062,12 +1142,105 @@ def draw_calendar():
 
 draw_calendar()
 
+#activity functions
+def format_time_12h(time_str):
+    hour, minute = map(int, time_str.split(":"))
+    suffix = "AM" if hour < 12 else "PM"
+    hour12 = hour % 12 or 12
+    return f"{hour12}:{minute:02d} {suffix}"
+
+
+def get_next_occurrence(activity, from_date=None):
+    """The next upcoming date this activity falls on, skipped or not."""
+    d = from_date or date.today()
+    for _ in range(14):
+        if d.weekday() in activity["weekdays"]:
+            return d
+        d += timedelta(days=1)
+    return None
+
+
+def is_valid_time(text):
+    try:
+        hour, minute = text.split(":")
+        return 0 <= int(hour) <= 23 and 0 <= int(minute) <= 59
+    except ValueError:
+        return False
+
+
+def toggle_skip_next(activity):
+    """Skip (or un-skip) this activity's very next upcoming date."""
+    next_date = get_next_occurrence(activity)
+    if not next_date:
+        return
+    iso = next_date.isoformat()
+    if iso in activity["skipped_dates"]:
+        activity["skipped_dates"].remove(iso)
+    else:
+        activity["skipped_dates"].append(iso)
+    save_data()
+    build_activities_panel()
+
 #create card
 event_card = create_card(right_frame)
 
+event_body = tk.Frame(event_card, bg="#2b2b2b")
+event_body.pack(fill="both", expand=True)
+
+#weekly activities panel — packed first (side="right") so it keeps its
+#natural width; events_frame packed after with expand=True takes the rest
+activities_frame = tk.Frame(event_body, bg="#2b2b2b")
+activities_frame.pack(side="right", fill="y", padx=(0, 20), pady=20)
+
+activities_title = tk.Label(
+    activities_frame,
+    text="WEEKLY SCHEDULE",
+    bg="#2b2b2b",
+    fg="white",
+    font=("Arial", int(16 * scale), "bold")
+)
+activities_title.pack(anchor="w")
+
+
+def build_activities_panel():
+    for widget in activities_frame.winfo_children()[1:]:
+        widget.destroy()
+
+    for activity in get_period_data()["activities"]:
+        day_names = ", ".join(WEEKDAY_NAMES[d][:3] for d in sorted(activity["weekdays"]))
+        time_text = f"{format_time_12h(activity['start_time'])}\u2013{format_time_12h(activity['end_time'])}"
+
+        row = tk.Frame(activities_frame, bg="#2b2b2b")
+        row.pack(anchor="w", pady=(10, 0), fill="x")
+
+        tk.Label(row, text=activity["name"], bg="#2b2b2b", fg=ACTIVITY_COLOR,
+                 font=("Arial", int(13 * scale), "bold")).pack(anchor="w")
+        tk.Label(row, text=f"{day_names} \u00b7 {time_text}", bg="#2b2b2b", fg="white",
+                 font=("Arial", int(11 * scale)), wraplength=140, justify="left").pack(anchor="w")
+
+        next_date = get_next_occurrence(activity)
+        if next_date:
+            skipped = next_date.isoformat() in activity["skipped_dates"]
+            status_text = f"Next: {next_date.strftime('%b')} {next_date.day}"
+            if skipped:
+                status_text += " (skipped)"
+
+            status_row = tk.Frame(row, bg="#2b2b2b")
+            status_row.pack(anchor="w", pady=(2, 0))
+
+            tk.Label(status_row, text=status_text, bg="#2b2b2b",
+                     fg="#7a7f8c" if skipped else "#9a9fab",
+                     font=("Arial", int(10 * scale), "italic")).pack(side="left")
+
+            tk.Button(
+                status_row, text="Unskip" if skipped else "Skip next",
+                command=lambda a=activity: toggle_skip_next(a)
+            ).pack(side="left", padx=(8, 0))
+
+
 #create events
 events_frame = tk.Frame(
-    event_card,
+    event_body,
     bg="#2b2b2b"
 )
 
@@ -1099,6 +1272,12 @@ add_event_form = None
 toggle_event_form_button = None
 add_event_form_open = False
 
+repeats_weekly_var = None
+event_type_frame = None
+weekly_day_vars = []
+weekly_start_entry = None
+weekly_end_entry = None
+
 
 def format_date_range(start, end):
     if start.month == end.month and start.day == end.day:
@@ -1119,14 +1298,12 @@ def toggle_add_event_form():
         toggle_event_form_button.config(text="+ Add Event")
 
 
-def add_event():
-    global event_status_label
-    name = event_name_entry.get().strip()
+def add_event(name):
     start_text = event_start_entry.get().strip()
     end_text = event_end_entry.get().strip() or start_text
 
-    if not name or not start_text:
-        event_status_label.config(text="Enter a name and a start date (YYYY-MM-DD).", fg="#E53935")
+    if not start_text:
+        event_status_label.config(text="Enter a start date (YYYY-MM-DD).", fg="#E53935")
         return
     try:
         start = date.fromisoformat(start_text)
@@ -1145,9 +1322,81 @@ def add_event():
     redraw_calendar()
 
 
+def add_activity(name):
+    selected_days = [i for i, var in enumerate(weekly_day_vars) if var.get()]
+    start_time = weekly_start_entry.get().strip()
+    end_time = weekly_end_entry.get().strip()
+
+    if not selected_days:
+        event_status_label.config(text="Pick at least one day of the week.", fg="#E53935")
+        return
+    if not is_valid_time(start_time) or not is_valid_time(end_time):
+        event_status_label.config(text="Times must look like 17:00 (24-hour).", fg="#E53935")
+        return
+
+    get_period_data()["activities"].append({
+        "name": name,
+        "weekdays": selected_days,
+        "start_time": start_time,
+        "end_time": end_time,
+        "skipped_dates": [],
+    })
+    save_data()
+    build_events_section()
+    build_activities_panel()
+
+
+def render_event_type_fields():
+    global event_start_entry, event_end_entry, weekly_day_vars, weekly_start_entry, weekly_end_entry
+
+    for widget in event_type_frame.winfo_children():
+        widget.destroy()
+
+    if repeats_weekly_var.get():
+        weekly_day_vars = []
+        days_row = tk.Frame(event_type_frame, bg="#2b2b2b")
+        days_row.pack(fill="x")
+        for label in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]:
+            var = tk.BooleanVar()
+            tk.Checkbutton(days_row, text=label, variable=var, bg="#2b2b2b", fg="white",
+                           selectcolor="#2b2b2b", font=("Arial", int(10 * scale))).pack(side="left")
+            weekly_day_vars.append(var)
+
+        time_row = tk.Frame(event_type_frame, bg="#2b2b2b")
+        time_row.pack(fill="x", pady=3)
+        tk.Label(time_row, text="Start (HH:MM):", bg="#2b2b2b", fg="white").pack(side="left")
+        weekly_start_entry = tk.Entry(time_row, width=8)
+        weekly_start_entry.pack(side="left", padx=(4, 10))
+        tk.Label(time_row, text="End (HH:MM):", bg="#2b2b2b", fg="white").pack(side="left")
+        weekly_end_entry = tk.Entry(time_row, width=8)
+        weekly_end_entry.pack(side="left", padx=(4, 0))
+    else:
+        date_row = tk.Frame(event_type_frame, bg="#2b2b2b")
+        date_row.pack(fill="x")
+        tk.Label(date_row, text="Start (YYYY-MM-DD):", bg="#2b2b2b", fg="white").pack(side="left")
+        event_start_entry = tk.Entry(date_row, width=12)
+        event_start_entry.pack(side="left", padx=(4, 10))
+        tk.Label(date_row, text="End (optional):", bg="#2b2b2b", fg="white").pack(side="left")
+        event_end_entry = tk.Entry(date_row, width=12)
+        event_end_entry.pack(side="left", padx=(4, 0))
+
+
+def submit_event_form():
+    name = event_name_entry.get().strip()
+    if not name:
+        event_status_label.config(text="Enter a name.", fg="#E53935")
+        return
+
+    if repeats_weekly_var.get():
+        add_activity(name)
+    else:
+        add_event(name)
+
+
 def build_events_section():
     global legend_desc_labels, event_name_entry, event_start_entry
     global event_end_entry, event_status_label, add_event_form, toggle_event_form_button
+    global repeats_weekly_var, event_type_frame, weekly_day_vars, weekly_start_entry, weekly_end_entry
 
     for widget in events_frame.winfo_children()[1:]:
         widget.destroy()
@@ -1203,7 +1452,7 @@ def build_events_section():
 
     add_event_form = tk.Frame(events_frame, bg="#2b2b2b")
 
-    tk.Label(add_event_form, text=f"Add {PERIOD_LABELS[current_period]} event", bg="#2b2b2b", fg="white",
+    tk.Label(add_event_form, text=f"Add to {PERIOD_LABELS[current_period]}", bg="#2b2b2b", fg="white",
              font=("Arial", int(13 * scale), "bold")).pack(anchor="w", pady=(10, 0))
 
     name_row = tk.Frame(add_event_form, bg="#2b2b2b")
@@ -1212,16 +1461,18 @@ def build_events_section():
     event_name_entry = tk.Entry(name_row)
     event_name_entry.pack(side="left", fill="x", expand=True)
 
-    date_row = tk.Frame(add_event_form, bg="#2b2b2b")
-    date_row.pack(fill="x", pady=3)
-    tk.Label(date_row, text="Start (YYYY-MM-DD):", bg="#2b2b2b", fg="white").pack(side="left")
-    event_start_entry = tk.Entry(date_row, width=12)
-    event_start_entry.pack(side="left", padx=(4, 10))
-    tk.Label(date_row, text="End (optional):", bg="#2b2b2b", fg="white").pack(side="left")
-    event_end_entry = tk.Entry(date_row, width=12)
-    event_end_entry.pack(side="left", padx=(4, 0))
+    repeats_weekly_var = tk.BooleanVar(value=False)
+    tk.Checkbutton(
+        add_event_form, text="Repeats weekly (adds to Weekly Schedule instead)",
+        variable=repeats_weekly_var, command=render_event_type_fields,
+        bg="#2b2b2b", fg="white", selectcolor="#2b2b2b", font=("Arial", int(11 * scale))
+    ).pack(anchor="w", pady=(3, 0))
 
-    tk.Button(add_event_form, text="Add Event", command=add_event).pack(anchor="w", pady=(6, 0))
+    event_type_frame = tk.Frame(add_event_form, bg="#2b2b2b")
+    event_type_frame.pack(fill="x", pady=3)
+    render_event_type_fields()
+
+    tk.Button(add_event_form, text="Add", command=submit_event_form).pack(anchor="w", pady=(6, 0))
 
     event_status_label = tk.Label(add_event_form, text="", bg="#2b2b2b", font=("Arial", int(11 * scale)))
     event_status_label.pack(anchor="w", pady=(4, 0))
@@ -1236,6 +1487,7 @@ def rebuild_period_ui():
     build_progress_section()
     build_events_section()
     build_stepped_goals_section()
+    build_activities_panel()
 
     update_title()
     update_days_left()
