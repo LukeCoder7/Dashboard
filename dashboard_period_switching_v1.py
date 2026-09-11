@@ -69,17 +69,20 @@ DEFAULT_GOALS = {
         "Prepare nerdy docs for next year",
     ],
     PERIOD_SCHOOL_YEAR: [
-        "Finish robotics season strong",
+        "Finish raspberry pi case/setup",
         "Keep grades up",
-        "Learn a new coding skill",
-        "Stay active in a club/sport",
-        "Plan next summer's projects",
+        "finish arduino course project",
+        "Make Money",
+        "Make AI agent",
+        "Complete and sell unfinished lego",
+        "do something with guitar",
+        "do something with duolingo"
     ],
 }
 
 DEFAULT_DAILY_FOCUS = {
     PERIOD_SUMMER: ["Arduino lesson(s)", "Work on coding", "Watched a marvel movie?"],
-    PERIOD_SCHOOL_YEAR: ["Homework done", "Robotics practice", "Coding practice"],
+    PERIOD_SCHOOL_YEAR: ["Homework done", "Coding practice","Duolingo", "Read", "something else"],
 }
 
 DEFAULT_PROGRESS = {
@@ -89,9 +92,8 @@ DEFAULT_PROGRESS = {
         "Marvel movies": (5, 45),
     },
     PERIOD_SCHOOL_YEAR: {
-        "Robotics hours": (0, 120),
-        "Reading pages": (0, 600),
-        "Coding course": (0, 100),
+        "Python Coding Camp": (0, 500),
+        "Minecraft Modding course": (40, 130),
     },
 }
 
@@ -106,6 +108,21 @@ DEFAULT_EVENTS = {
         {"name": "wedding trip", "start_date": "2026-07-03", "end_date": "2026-07-19", "period": PERIOD_SUMMER},
     ],
     PERIOD_SCHOOL_YEAR: [],
+}
+
+DEFAULT_STEPPED_GOALS = {
+    PERIOD_SUMMER: [
+        {
+            "name": "Build a robotics project",
+            "steps": ["Design the build", "Order parts", "Assemble", "Program it", "Test and refine"],
+        },
+    ],
+    PERIOD_SCHOOL_YEAR: [
+        {
+            "name": "Finish the Raspberry Pi case",
+            "steps": ["Measure and plan", "3D print or cut", "Assemble", "Mount the Pi", "Test fit and finish"],
+        },
+    ],
 }
 
 #setup
@@ -145,6 +162,7 @@ def build_default_period_data(period):
         "daily_focus": [False] * len(DEFAULT_DAILY_FOCUS[period]),
         "progress": [[str(c), str(g)] for c, g in DEFAULT_PROGRESS[period].values()],
         "events": [dict(e) for e in DEFAULT_EVENTS[period]],
+        "stepped_goals": [[False] * len(g["steps"]) for g in DEFAULT_STEPPED_GOALS[period]],
     }
 
 
@@ -193,6 +211,7 @@ def save_data():
     active["goals"] = [var.get() for var in goal_vars]
     active["daily_focus"] = [var.get() for var in daily_vars]
     active["progress"] = [[e[0].get(), e[1].get()] for e in progress_entries]
+    active["stepped_goals"] = [[var.get() for var in steps] for steps in stepped_goal_vars]
 
     payload = dict(app_data)
     payload["current_period"] = current_period
@@ -235,15 +254,14 @@ def create_card(parent):
 #update progress
 def update_total_progress():
 
-    completed_goals = 0
+    completed_goals = sum(var.get() for var in goal_vars)
+    total_goal_units = len(goal_vars)
 
-    for var in goal_vars:
-        if var.get():
-            completed_goals += 1
+    for steps in stepped_goal_vars:
+        completed_goals += sum(var.get() for var in steps)
+        total_goal_units += len(steps)
 
-    goal_percent = (
-        completed_goals / len(goal_vars)
-    ) * 100
+    goal_percent = (completed_goals / total_goal_units) * 100 if total_goal_units else 0
 
     current_total = 0
     goal_total = 0
@@ -329,10 +347,10 @@ center_frame.pack(
     padx=(0, 15)
 )
 right_frame.pack(
-    side="right",
-    fill="both",
-    expand=True
-    #padx =(0, 15)
+    side="left",
+    fill="y",
+    #expand=True
+    padx =(0, 15)
 )
 
 #write title summer
@@ -620,6 +638,28 @@ update_button = tk.Button(
 )
 update_button.pack(pady=10)
 
+#create AI card
+ai_card = create_card(left_frame)
+
+ai_title = tk.Label(
+    ai_card,
+    text="AI ASSISTANT",
+    bg="#2b2b2b",
+    fg="white",
+    font=("Arial", int(18 * scale), "bold")
+)
+ai_title.pack(anchor="w")
+
+ai_placeholder_label = tk.Label(
+    ai_card,
+    text="Reserved for a future AI integration (e.g. Protégé).\nNot wired up to anything yet.",
+    bg="#2b2b2b",
+    fg="#9a9fab",
+    font=("Arial", int(13 * scale), "italic"),
+    justify="left"
+)
+ai_placeholder_label.pack(anchor="w", pady=(8, 0))
+
 #create card
 goal_card = create_card(center_frame)
 
@@ -711,7 +751,100 @@ def build_progress_section():
 
         progress_entries.append((current_entry, goal_entry))
         progress_bars.append(bar)
-        
+
+#all has to do with stepped goals
+
+#create card
+stepped_goal_card = create_card(center_frame)
+
+stepped_goal_title = tk.Label(
+    stepped_goal_card, text="MULTISTEP GOALS", bg="#2b2b2b", fg="white",
+    font=("Arial", int(20 * scale), "bold")
+)
+stepped_goal_title.pack(pady=(0, 5))
+
+stepped_goal_vars = []
+stepped_step_frames = []
+stepped_expanded = []
+stepped_fraction_labels = []
+stepped_toggle_buttons = []
+
+
+def toggle_stepped_goal(i):
+    stepped_expanded[i] = not stepped_expanded[i]
+    if stepped_expanded[i]:
+        stepped_step_frames[i].pack(fill="x", padx=(30, 0), pady=(2, 6))
+        stepped_toggle_buttons[i].config(text="▼")
+    else:
+        stepped_step_frames[i].pack_forget()
+        stepped_toggle_buttons[i].config(text="▶")
+
+
+def refresh_stepped_goal_label(i):
+    done = sum(var.get() for var in stepped_goal_vars[i])
+    total = len(stepped_goal_vars[i])
+    stepped_fraction_labels[i].config(text=f"{done}/{total}")
+
+
+def on_stepped_step_toggled(i):
+    refresh_stepped_goal_label(i)
+    update_total_progress()
+
+
+def build_stepped_goals_section():
+    global stepped_goal_vars, stepped_step_frames, stepped_expanded
+    global stepped_fraction_labels, stepped_toggle_buttons
+
+    for widget in stepped_goal_card.winfo_children()[1:]:
+        widget.destroy()
+
+    stepped_goal_vars = []
+    stepped_step_frames = []
+    stepped_expanded = []
+    stepped_fraction_labels = []
+    stepped_toggle_buttons = []
+
+    goals = DEFAULT_STEPPED_GOALS[current_period]
+    saved = get_period_data()["stepped_goals"]
+
+    for i, goal in enumerate(goals):
+        saved_steps = saved[i] if i < len(saved) else [False] * len(goal["steps"])
+
+        header = tk.Frame(stepped_goal_card, bg="#2b2b2b")
+        header.pack(fill="x", pady=(10, 0))
+
+        toggle_button = tk.Button(header, text="▶", width=2, command=lambda i=i: toggle_stepped_goal(i))
+        toggle_button.pack(side="left")
+        stepped_toggle_buttons.append(toggle_button)
+
+        tk.Label(header, text=goal["name"], bg="#2b2b2b", fg="white",
+                 font=("Arial", int(15 * scale), "bold")).pack(side="left", padx=(6, 6))
+
+        fraction_label = tk.Label(header, text="", bg="#2b2b2b", fg="#9a9fab", font=("Arial", int(12 * scale)))
+        fraction_label.pack(side="left")
+        stepped_fraction_labels.append(fraction_label)
+
+        steps_frame = tk.Frame(stepped_goal_card, bg="#2b2b2b")
+        # not packed here on purpose — collapsed by default, toggle_stepped_goal() packs it
+
+        goal_step_vars = []
+        for j, step_text in enumerate(goal["steps"]):
+            var = tk.BooleanVar(value=saved_steps[j] if j < len(saved_steps) else False)
+            check = tk.Checkbutton(
+                steps_frame, text=step_text, variable=var,
+                command=lambda i=i: on_stepped_step_toggled(i),
+                bg="#2b2b2b", fg="white", selectcolor="#2b2b2b", font=("Arial", int(13 * scale))
+            )
+            check.pack(anchor="w")
+            goal_step_vars.append(var)
+
+        stepped_goal_vars.append(goal_step_vars)
+        stepped_step_frames.append(steps_frame)
+        stepped_expanded.append(False)
+
+        refresh_stepped_goal_label(i)
+#end of stepped goals
+
 #allow switchable months
 def previous_month():
     global display_month, display_year
@@ -884,7 +1017,7 @@ def draw_calendar():
         for col_num, day in enumerate(week):
 
             if day == 0:
-                cell = tk.Frame(calendar_frame, bg="#1e1e1e", width=int(80 * scale), height=int(58 * scale))
+                cell = tk.Frame(calendar_frame, bg="#1e1e1e", width=int(80 * scale), height=int(70 * scale))
                 cell.grid(row=row_num + 1, column=col_num, padx=4, pady=4)
                 cell.pack_propagate(False)
                 continue
@@ -904,7 +1037,7 @@ def draw_calendar():
             else:
                 bg_color = "#2b2b2b"
 
-            cell = tk.Frame(calendar_frame, bg=bg_color, width=int(80 * scale), height=int(58 * scale))
+            cell = tk.Frame(calendar_frame, bg=bg_color, width=int(80 * scale), height=int(70 * scale))  # was 58
             cell.grid(row=row_num + 1, column=col_num, padx=4, pady=4)
             cell.pack_propagate(False)
 
@@ -939,7 +1072,9 @@ events_frame = tk.Frame(
 )
 
 events_frame.pack(
-    fill="x",
+    side="left",
+    fill="both",
+    expand=True,
     padx=20,
     pady=20
 )
@@ -1100,6 +1235,7 @@ def rebuild_period_ui():
     build_daily_focus_section()
     build_progress_section()
     build_events_section()
+    build_stepped_goals_section()
 
     update_title()
     update_days_left()
