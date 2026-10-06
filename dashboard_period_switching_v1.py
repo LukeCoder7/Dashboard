@@ -1,6 +1,6 @@
 #imports
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, simpledialog, messagebox
 import calendar
 from datetime import date, datetime, timedelta
 import requests
@@ -59,6 +59,9 @@ def get_period_target_date():
         return SCHOOL_YEAR_START
     return SCHOOL_YEAR_END
 
+def get_progress_labels():
+    return [item["label"] for item in get_period_data()["progress"]]
+
 #period defaults
 DEFAULT_GOALS = {
     PERIOD_SUMMER: [
@@ -76,7 +79,8 @@ DEFAULT_GOALS = {
         "Make AI agent",
         "Complete and sell unfinished lego",
         "do something with guitar",
-        "do something with duolingo"
+        "do something with duolingo",
+        "Do something with stop motion"
     ],
 }
 
@@ -173,16 +177,76 @@ display_year = now.year
 #load data
 def build_default_period_data(period):
     return {
-        "goals": [False] * len(DEFAULT_GOALS[period]),
-        "daily_focus": [False] * len(DEFAULT_DAILY_FOCUS[period]),
-        "progress": [[str(c), str(g)] for c, g in DEFAULT_PROGRESS[period].values()],
+        "goals": [{"text": t, "done": False} for t in DEFAULT_GOALS[period]],
+        "daily_focus": [{"text": t, "done": False} for t in DEFAULT_DAILY_FOCUS[period]],
+        "progress": [
+            {"label": label, "current": str(c), "goal": str(g)}
+            for label, (c, g) in DEFAULT_PROGRESS[period].items()
+        ],
         "events": [dict(e) for e in DEFAULT_EVENTS[period]],
-        "stepped_goals": [[False] * len(g["steps"]) for g in DEFAULT_STEPPED_GOALS[period]],
+        "stepped_goals": [
+            {"name": g["name"], "steps": [{"text": s, "done": False} for s in g["steps"]]}
+            for g in DEFAULT_STEPPED_GOALS[period]
+        ],
         "activities": [
             {**a, "skipped_dates": list(a["skipped_dates"])}
             for a in DEFAULT_ACTIVITIES[period]
         ],
     }
+
+def upgrade_checklist(items, texts, label):
+    """Old saves stored a checklist as plain True/False (the text lived in the
+    code). Returns the new [{"text", "done"}] form, or the items untouched if
+    they're already in it."""
+    if not items or isinstance(items[0], dict):
+        return items
+    return [
+        {
+            "text": texts[i] if i < len(texts) else f"{label} {i + 1}",
+            "done": bool(items[i]) if i < len(items) else False,
+        }
+        for i in range(max(len(texts), len(items)))
+    ]
+
+def upgrade_progress(items, defaults):
+    """Old saves stored progress as [current, goal] pairs, with the labels
+    living in the code. Pair each with its label from DEFAULT_PROGRESS."""
+    if not items or isinstance(items[0], dict):
+        return items
+    labels = list(defaults.keys())
+    upgraded = []
+    for i in range(max(len(labels), len(items))):
+        label = labels[i] if i < len(labels) else f"Item {i + 1}"
+        current, goal = items[i] if i < len(items) else defaults[label]
+        upgraded.append({"label": label, "current": str(current), "goal": str(goal)})
+    return upgraded
+
+def upgrade_stepped_goals(items, defaults):
+    """Old saves stored only True/False per step; the goal names and step text
+    lived in the code. Pair them back up using DEFAULT_STEPPED_GOALS."""
+    if not items or isinstance(items[0], dict):
+        return items
+    upgraded = []
+    for i in range(max(len(defaults), len(items))):
+        goal = defaults[i] if i < len(defaults) else {"name": f"Goal {i + 1}", "steps": []}
+        states = items[i] if i < len(items) else []
+        texts = goal["steps"]
+        steps = [
+            {
+                "text": texts[j] if j < len(texts) else f"Step {j + 1}",
+                "done": bool(states[j]) if j < len(states) else False,
+            }
+            for j in range(max(len(texts), len(states)))
+        ]
+        upgraded.append({"name": goal["name"], "steps": steps})
+    return upgraded
+
+def normalize_period_data(period, data):
+    data["goals"] = upgrade_checklist(data.get("goals", []), DEFAULT_GOALS[period], "Goal")
+    data["daily_focus"] = upgrade_checklist(data.get("daily_focus", []), DEFAULT_DAILY_FOCUS[period], "Task")
+    data["progress"] = upgrade_progress(data.get("progress", []), DEFAULT_PROGRESS[period])
+    data["stepped_goals"] = upgrade_stepped_goals(data.get("stepped_goals", []), DEFAULT_STEPPED_GOALS[period])
+    return data
 
 def load_all_data():
     if not os.path.exists(SAVE_FILE):
@@ -204,6 +268,7 @@ def load_all_data():
         summer["goals"] = raw.get("goals", summer["goals"])
         summer["daily_focus"] = raw.get("daily", summer["daily_focus"])
         summer["progress"] = raw.get("progress", summer["progress"])
+        summer = normalize_period_data(PERIOD_SUMMER, summer)
         return (
             {PERIOD_SUMMER: summer, PERIOD_SCHOOL_YEAR: build_default_period_data(PERIOD_SCHOOL_YEAR)},
             detect_current_period(),
@@ -214,7 +279,7 @@ def load_all_data():
     for period in (PERIOD_SUMMER, PERIOD_SCHOOL_YEAR):
         merged = build_default_period_data(period)
         merged.update(raw.get(period, {}))
-        data[period] = merged
+        data[period] = normalize_period_data(period, merged)
 
     saved_period = raw.get("current_period")
     if saved_period not in (PERIOD_SUMMER, PERIOD_SCHOOL_YEAR):
@@ -223,14 +288,21 @@ def load_all_data():
     return data, saved_period, raw.get("ideas", [])
 
 app_data, current_period, idea_list = load_all_data()
+edit_mode = False
 
 #Save data
 def save_data():
     active = get_period_data()
-    active["goals"] = [var.get() for var in goal_vars]
-    active["daily_focus"] = [var.get() for var in daily_vars]
-    active["progress"] = [[e[0].get(), e[1].get()] for e in progress_entries]
-    active["stepped_goals"] = [[var.get() for var in steps] for steps in stepped_goal_vars]
+    for goal, var in zip(active["goals"], goal_vars):
+        goal["done"] = var.get()
+    for task, var in zip(active["daily_focus"], daily_vars):
+        task["done"] = var.get()
+    for item, (current_entry, goal_entry) in zip(active["progress"], progress_entries):
+        item["current"] = current_entry.get()
+        item["goal"] = goal_entry.get()
+    for goal, steps in zip(active["stepped_goals"], stepped_goal_vars):
+        for step, var in zip(goal["steps"], steps):
+            step["done"] = var.get()
 
     payload = dict(app_data)
     payload["current_period"] = current_period
@@ -278,11 +350,11 @@ def update_total_progress():
     total_goal_units = len(goal_vars)
 
     for steps in stepped_goal_vars:
-        completed_goals += sum(var.get() for var in steps)
-        total_goal_units += len(steps)
+        if steps:
+            total_goal_units += 1
+            completed_goals += sum(var.get() for var in steps) / len(steps)
 
     goal_percent = (completed_goals / total_goal_units) * 100 if total_goal_units else 0
-
     current_total = 0
     goal_total = 0
 
@@ -315,7 +387,7 @@ def update_total_progress():
     save_data()
     redraw_calendar()
 
-    progress_labels = list(DEFAULT_PROGRESS[current_period].keys())
+    progress_labels = get_progress_labels()
 
     for i, label_text in enumerate(progress_labels):
         try:
@@ -464,6 +536,172 @@ def switch_period(new_period):
 switch_button = tk.Button(view_frame, text="", command=lambda: switch_period(other_period()))
 switch_button.pack(side="left")
 
+
+def toggle_edit_mode():
+    global edit_mode
+    save_data()  # capture anything typed or ticked before the screen gets rebuilt
+    edit_mode = not edit_mode
+    edit_button.config(text="✔ Done editing" if edit_mode else "✎ Edit mode")
+    rebuild_period_ui()
+
+
+edit_button = tk.Button(view_frame, text="✎ Edit mode", command=toggle_edit_mode)
+edit_button.pack(side="left", padx=(10, 0))
+
+
+#edit mode helpers
+def ask_text(title, prompt, initial=""):
+    """Pop up a small box asking for text. Returns the cleaned text, or
+    None if you cancel or leave it blank."""
+    value = simpledialog.askstring(title, prompt, initialvalue=initial, parent=root)
+    if value is None:
+        return None
+    return value.strip() or None
+
+
+def confirm_delete(name):
+    return messagebox.askyesno("Delete", f'Delete "{name}"?', parent=root)
+
+
+def add_edit_buttons(parent, on_rename, on_delete):
+    """The small ✎ and × buttons that sit beside an item in edit mode."""
+    tk.Button(parent, text="×", width=2, command=on_delete).pack(side="right")
+    if on_rename:
+        tk.Button(parent, text="✎", width=2, command=on_rename).pack(side="right")
+
+
+def add_checklist_item(key, noun):
+    text = ask_text(f"Add {noun}", f"New {noun}:")
+    if text is None:
+        return
+    save_data()  # sync the checkboxes into the data first, so nothing is lost on rebuild
+    get_period_data()[key].append({"text": text, "done": False})
+    rebuild_period_ui()
+
+
+def rename_checklist_item(key, i, noun):
+    item = get_period_data()[key][i]
+    text = ask_text(f"Rename {noun}", "New name:", item["text"])
+    if text is None:
+        return
+    save_data()
+    item["text"] = text
+    rebuild_period_ui()
+
+
+def delete_checklist_item(key, i):
+    items = get_period_data()[key]
+    if not confirm_delete(items[i]["text"]):
+        return
+    save_data()
+    del items[i]
+    rebuild_period_ui()
+
+
+def add_progress_item():
+    label = ask_text("Add progress tracker", "What are you tracking? (e.g. Reading pages)")
+    if label is None:
+        return
+    goal = simpledialog.askinteger(
+        "Add progress tracker", f'Goal for "{label}" (a whole number):', parent=root, minvalue=1
+    )
+    if goal is None:
+        return
+    save_data()
+    get_period_data()["progress"].append({"label": label, "current": "0", "goal": str(goal)})
+    rebuild_period_ui()
+
+
+def rename_progress_item(i):
+    item = get_period_data()["progress"][i]
+    text = ask_text("Rename tracker", "New name:", item["label"])
+    if text is None:
+        return
+    save_data()
+    item["label"] = text
+    rebuild_period_ui()
+
+
+def delete_progress_item(i):
+    items = get_period_data()["progress"]
+    if not confirm_delete(items[i]["label"]):
+        return
+    save_data()
+    del items[i]
+    rebuild_period_ui()
+
+
+
+def add_stepped_goal():
+    name = ask_text("Add multistep goal", "Goal name:")
+    if name is None:
+        return
+    save_data()
+    get_period_data()["stepped_goals"].append({"name": name, "steps": []})
+    rebuild_period_ui()
+
+
+def rename_stepped_goal(i):
+    goal = get_period_data()["stepped_goals"][i]
+    name = ask_text("Rename goal", "New name:", goal["name"])
+    if name is None:
+        return
+    save_data()
+    goal["name"] = name
+    rebuild_period_ui()
+
+
+def delete_stepped_goal(i):
+    goals = get_period_data()["stepped_goals"]
+    if not confirm_delete(goals[i]["name"]):
+        return
+    save_data()
+    del goals[i]
+    rebuild_period_ui()
+
+
+def add_step(i):
+    text = ask_text("Add step", "Step:")
+    if text is None:
+        return
+    save_data()
+    get_period_data()["stepped_goals"][i]["steps"].append({"text": text, "done": False})
+    rebuild_period_ui()
+
+
+def rename_step(i, j):
+    step = get_period_data()["stepped_goals"][i]["steps"][j]
+    text = ask_text("Rename step", "New name:", step["text"])
+    if text is None:
+        return
+    save_data()
+    step["text"] = text
+    rebuild_period_ui()
+
+
+def delete_step(i, j):
+    steps = get_period_data()["stepped_goals"][i]["steps"]
+    if not confirm_delete(steps[j]["text"]):
+        return
+    save_data()
+    del steps[j]
+    rebuild_period_ui()
+
+
+def delete_event(event):
+    if not confirm_delete(event["name"]):
+        return
+    save_data()
+    get_period_data()["events"].remove(event)
+    rebuild_period_ui()
+
+def delete_activity(activity):
+    if not confirm_delete(activity["name"]):
+        return
+    save_data()
+    get_period_data()["activities"].remove(activity)
+    rebuild_period_ui()
+
 #create card
 days_card = create_card(left_frame)
 
@@ -508,16 +746,31 @@ def build_daily_focus_section():
         widget.destroy()
 
     daily_vars = []
-    saved_daily = get_period_data()["daily_focus"]
 
-    for i, goal in enumerate(DEFAULT_DAILY_FOCUS[current_period]):
-        var = tk.BooleanVar(value=saved_daily[i] if i < len(saved_daily) else False)
+    for i, task in enumerate(get_period_data()["daily_focus"]):
+        row = tk.Frame(focus_card, bg="#2b2b2b")
+        row.pack(fill="x")
+
+        var = tk.BooleanVar(value=task["done"])
         check = tk.Checkbutton(
-            focus_card, text=goal, variable=var, bg="#2b2b2b", fg="white",
+            row, text=task["text"], variable=var, bg="#2b2b2b", fg="white",
             font=("Arial", int(16 * scale)), selectcolor="#2b2b2b"
         )
-        check.pack(anchor="w", pady=2)
+        check.pack(side="left", pady=2)
         daily_vars.append(var)
+
+        if edit_mode:
+            add_edit_buttons(
+                row,
+                lambda i=i: rename_checklist_item("daily_focus", i, "task"),
+                lambda i=i: delete_checklist_item("daily_focus", i),
+            )
+
+    if edit_mode:
+        tk.Button(
+            focus_card, text="+ Add task",
+            command=lambda: add_checklist_item("daily_focus", "task")
+        ).pack(anchor="w", pady=(6, 0))
 
 #create card
 weather_card = create_card(left_frame)
@@ -761,16 +1014,31 @@ def build_goal_section():
         widget.destroy()
 
     goal_vars = []
-    saved_goals = get_period_data()["goals"]
 
-    for i, goal in enumerate(DEFAULT_GOALS[current_period]):
-        var = tk.BooleanVar(value=saved_goals[i] if i < len(saved_goals) else False)
+    for i, goal in enumerate(get_period_data()["goals"]):
+        row = tk.Frame(goal_card, bg="#2b2b2b")
+        row.pack(fill="x")
+
+        var = tk.BooleanVar(value=goal["done"])
         check = tk.Checkbutton(
-            goal_card, text=goal, variable=var, command=update_total_progress,
+            row, text=goal["text"], variable=var, command=update_total_progress,
             bg="#2b2b2b", fg="white", font=("Arial", int(20 * scale))
         )
-        check.pack(anchor="w")
+        check.pack(side="left")
         goal_vars.append(var)
+
+        if edit_mode:
+            add_edit_buttons(
+                row,
+                lambda i=i: rename_checklist_item("goals", i, "goal"),
+                lambda i=i: delete_checklist_item("goals", i),
+            )
+
+    if edit_mode:
+        tk.Button(
+            goal_card, text="+ Add goal",
+            command=lambda: add_checklist_item("goals", "goal")
+        ).pack(anchor="w", pady=(8, 0))
 
 #create card
 mini_progress_card = create_card(center_frame)
@@ -794,18 +1062,24 @@ def build_progress_section():
     progress_entries = []
     progress_bars = []
 
-    labels = list(DEFAULT_PROGRESS[current_period].keys())
-    saved_progress = get_period_data()["progress"]
-
-    for i, habit in enumerate(labels):
-        default_current, default_goal = DEFAULT_PROGRESS[current_period][habit]
-        current, goal = saved_progress[i] if i < len(saved_progress) else (default_current, default_goal)
+    for i, item in enumerate(get_period_data()["progress"]):
+        habit, current, goal = item["label"], item["current"], item["goal"]
 
         frame = tk.Frame(mini_progress_card, bg="#2b2b2b")
         frame.pack(fill="x", padx=20, pady=10)
 
-        tk.Label(frame, text=habit, bg="#2b2b2b", fg="white", width=26,
-                 font=("Arial", int(16 * scale), "bold"), anchor="w").pack(anchor="w")
+        title_row = tk.Frame(frame, bg="#2b2b2b")
+        title_row.pack(fill="x")
+
+        tk.Label(title_row, text=habit, bg="#2b2b2b", fg="white", width=20 if edit_mode else 26,
+                 font=("Arial", int(16 * scale), "bold"), anchor="w").pack(side="left")
+
+        if edit_mode:
+            add_edit_buttons(
+                title_row,
+                lambda i=i: rename_progress_item(i),
+                lambda i=i: delete_progress_item(i),
+            )
 
         bottom_frame = tk.Frame(frame, bg="#2b2b2b")
         bottom_frame.pack(fill="x")
@@ -813,7 +1087,7 @@ def build_progress_section():
         try:
             bar_max, bar_val = int(goal), int(current)
         except ValueError:
-            bar_max, bar_val = default_goal, default_current
+            bar_max, bar_val = 1, 0
 
         bar = ttk.Progressbar(bottom_frame, style="Custom.Horizontal.TProgressbar",
                                length=300, maximum=bar_max, value=bar_val)
@@ -831,6 +1105,11 @@ def build_progress_section():
 
         progress_entries.append((current_entry, goal_entry))
         progress_bars.append(bar)
+        
+    if edit_mode:
+        tk.Button(
+            mini_progress_card, text="+ Add tracker", command=add_progress_item
+        ).pack(anchor="w", pady=(4, 0))
 
 #all has to do with stepped goals
 
@@ -884,16 +1163,14 @@ def build_stepped_goals_section():
     stepped_fraction_labels = []
     stepped_toggle_buttons = []
 
-    goals = DEFAULT_STEPPED_GOALS[current_period]
-    saved = get_period_data()["stepped_goals"]
-
-    for i, goal in enumerate(goals):
-        saved_steps = saved[i] if i < len(saved) else [False] * len(goal["steps"])
-
+    for i, goal in enumerate(get_period_data()["stepped_goals"]):
         header = tk.Frame(stepped_goal_card, bg="#2b2b2b")
         header.pack(fill="x", pady=(10, 0))
 
-        toggle_button = tk.Button(header, text="▶", width=2, command=lambda i=i: toggle_stepped_goal(i))
+        toggle_button = tk.Button(
+            header, text="▼" if edit_mode else "▶", width=2,
+            command=lambda i=i: toggle_stepped_goal(i)
+        )
         toggle_button.pack(side="left")
         stepped_toggle_buttons.append(toggle_button)
 
@@ -904,25 +1181,56 @@ def build_stepped_goals_section():
         fraction_label.pack(side="left")
         stepped_fraction_labels.append(fraction_label)
 
+        if edit_mode:
+            add_edit_buttons(
+                header,
+                lambda i=i: rename_stepped_goal(i),
+                lambda i=i: delete_stepped_goal(i),
+            )
+
         steps_frame = tk.Frame(stepped_goal_card, bg="#2b2b2b")
-        # not packed here on purpose — collapsed by default, toggle_stepped_goal() packs it
+        if edit_mode:
+            # opened up automatically while editing; otherwise stays collapsed
+            # until toggle_stepped_goal() packs it
+            steps_frame.pack(fill="x", padx=(30, 0), pady=(2, 6))
 
         goal_step_vars = []
-        for j, step_text in enumerate(goal["steps"]):
-            var = tk.BooleanVar(value=saved_steps[j] if j < len(saved_steps) else False)
+        for j, step in enumerate(goal["steps"]):
+            step_row = tk.Frame(steps_frame, bg="#2b2b2b")
+            step_row.pack(fill="x")
+
+            var = tk.BooleanVar(value=step["done"])
             check = tk.Checkbutton(
-                steps_frame, text=step_text, variable=var,
+                step_row, text=step["text"], variable=var,
                 command=lambda i=i: on_stepped_step_toggled(i),
                 bg="#2b2b2b", fg="white", selectcolor="#2b2b2b", font=("Arial", int(13 * scale))
             )
-            check.pack(anchor="w")
+            check.pack(side="left")
             goal_step_vars.append(var)
+
+            if edit_mode:
+                add_edit_buttons(
+                    step_row,
+                    lambda i=i, j=j: rename_step(i, j),
+                    lambda i=i, j=j: delete_step(i, j),
+                )
+
+        if edit_mode:
+            tk.Button(
+                steps_frame, text="+ Add step", command=lambda i=i: add_step(i)
+            ).pack(anchor="w", pady=(4, 0))
 
         stepped_goal_vars.append(goal_step_vars)
         stepped_step_frames.append(steps_frame)
-        stepped_expanded.append(False)
+        stepped_expanded.append(edit_mode)
 
         refresh_stepped_goal_label(i)
+
+    if edit_mode:
+        tk.Button(
+            stepped_goal_card, text="+ Add multistep goal", command=add_stepped_goal
+        ).pack(anchor="w", pady=(10, 0))
+
 #end of stepped goals
 
 #allow switchable months
@@ -1024,19 +1332,20 @@ def get_dot_dates():
     days_left = (target - today).days
     dot_dates = {}
 
-    labels = list(DEFAULT_PROGRESS[current_period].keys())
-
-    for i, label_text in enumerate(labels):
-        default_current, default_goal = DEFAULT_PROGRESS[current_period][label_text]
+    for i, item in enumerate(get_period_data()["progress"]):
         try:
             current = int(progress_entries[i][0].get())
             goal = int(progress_entries[i][1].get())
         except (ValueError, IndexError):
-            current, goal = default_current, default_goal
+            try:
+                current, goal = int(item["current"]), int(item["goal"])
+            except ValueError:
+                dot_dates[i] = set()
+                continue
 
         remaining = goal - current
         if remaining <= 0 or days_left <= 0:
-            dot_dates[label_text] = set()
+            dot_dates[i] = set()
             continue
 
         interval = days_left / remaining
@@ -1044,7 +1353,7 @@ def get_dot_dates():
         for j in range(remaining):
             offset = round(j * interval)
             dates.add(today + timedelta(days=offset))
-        dot_dates[label_text] = dates
+        dot_dates[i] = dates
 
     return dot_dates
 
@@ -1082,7 +1391,7 @@ def get_events_for_event_list():
 
 def draw_calendar():
     dot_dates = get_dot_dates()
-    progress_labels = list(DEFAULT_PROGRESS[current_period].keys())
+    progress_labels = get_progress_labels()
     active_events, other_events = get_events_for_calendar(display_year, display_month)
 
     days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
@@ -1136,7 +1445,7 @@ def draw_calendar():
             dots_frame = tk.Frame(cell, bg=bg_color)
             dots_frame.pack()
             for j, label_text in enumerate(progress_labels):
-                if cell_date in dot_dates.get(label_text, set()):
+                if cell_date in dot_dates.get(j, set()):
                     tk.Label(dots_frame, text="●", bg=bg_color,
                              fg=dot_colors[j % len(dot_colors)], font=("Arial", int(8 * scale))).pack(side="left")
 
@@ -1213,8 +1522,15 @@ def build_activities_panel():
         row = tk.Frame(activities_frame, bg="#2b2b2b")
         row.pack(anchor="w", pady=(10, 0), fill="x")
 
-        tk.Label(row, text=activity["name"], bg="#2b2b2b", fg=ACTIVITY_COLOR,
-                 font=("Arial", int(13 * scale), "bold")).pack(anchor="w")
+        name_row = tk.Frame(row, bg="#2b2b2b")
+        name_row.pack(fill="x")
+
+        tk.Label(name_row, text=activity["name"], bg="#2b2b2b", fg=ACTIVITY_COLOR,
+                 font=("Arial", int(13 * scale), "bold")).pack(side="left")
+
+        if edit_mode:
+            add_edit_buttons(name_row, None, lambda a=activity: delete_activity(a))
+
         tk.Label(row, text=f"{day_names} \u00b7 {time_text}", bg="#2b2b2b", fg="white",
                  font=("Arial", int(11 * scale)), wraplength=140, justify="left").pack(anchor="w")
 
@@ -1232,10 +1548,11 @@ def build_activities_panel():
                      fg="#7a7f8c" if skipped else "#9a9fab",
                      font=("Arial", int(10 * scale), "italic")).pack(side="left")
 
-            tk.Button(
-                status_row, text="Unskip" if skipped else "Skip next",
-                command=lambda a=activity: toggle_skip_next(a)
-            ).pack(side="left", padx=(8, 0))
+            if edit_mode:
+                tk.Button(
+                    status_row, text="Unskip" if skipped else "Skip next",
+                    command=lambda a=activity: toggle_skip_next(a)
+                ).pack(side="left", padx=(8, 0))
 
 
 #create events
@@ -1269,8 +1586,6 @@ event_start_entry = None
 event_end_entry = None
 event_status_label = None
 add_event_form = None
-toggle_event_form_button = None
-add_event_form_open = False
 
 repeats_weekly_var = None
 event_type_frame = None
@@ -1285,18 +1600,6 @@ def format_date_range(start, end):
     if start.month == end.month:
         return f"{start.strftime('%B')} {start.day}-{end.day}"
     return f"{start.strftime('%B')} {start.day} - {end.strftime('%B')} {end.day}"
-
-
-def toggle_add_event_form():
-    global add_event_form_open
-    add_event_form_open = not add_event_form_open
-    if add_event_form_open:
-        add_event_form.pack(fill="x", pady=(10, 0))
-        toggle_event_form_button.config(text="− Hide Add Event Form")
-    else:
-        add_event_form.pack_forget()
-        toggle_event_form_button.config(text="+ Add Event")
-
 
 def add_event(name):
     start_text = event_start_entry.get().strip()
@@ -1395,7 +1698,7 @@ def submit_event_form():
 
 def build_events_section():
     global legend_desc_labels, event_name_entry, event_start_entry
-    global event_end_entry, event_status_label, add_event_form, toggle_event_form_button
+    global event_end_entry, event_status_label, add_event_form
     global repeats_weekly_var, event_type_frame, weekly_day_vars, weekly_start_entry, weekly_end_entry
 
     for widget in events_frame.winfo_children()[1:]:
@@ -1405,14 +1708,14 @@ def build_events_section():
     legend_frame.pack(anchor="w", pady=(10, 0))
 
     legend_desc_labels = []
-    progress_labels = list(DEFAULT_PROGRESS[current_period].keys())
+    progress_labels = get_progress_labels()
 
     for i, label_text in enumerate(progress_labels):
         try:
             current = int(progress_entries[i][0].get())
             goal = int(progress_entries[i][1].get())
         except (ValueError, IndexError):
-            current, goal = list(DEFAULT_PROGRESS[current_period].values())[i]
+            current, goal = 0, 0
 
         remaining = goal - current
         days_left_now = (get_period_target_date() - date.today()).days
@@ -1440,15 +1743,15 @@ def build_events_section():
         end = date.fromisoformat(event["end_date"])
         date_text = format_date_range(start, end)
 
-        event_label = tk.Label(events_frame, text=f"{date_text} • {event['name']}", bg="#2b2b2b", fg="white",
-                                font=("Arial", int(14 * scale)), padx=10, pady=6, anchor="w")
-        event_label.pack(fill="x", pady=6 / len(visible_events) if visible_events else 0)
+        event_row = tk.Frame(events_frame, bg="#2b2b2b")
+        event_row.pack(fill="x", pady=6 / len(visible_events) if visible_events else 0)
 
-    toggle_event_form_button = tk.Button(
-        events_frame, text="− Hide Add Event Form" if add_event_form_open else "+ Add Event",
-        command=toggle_add_event_form
-    )
-    toggle_event_form_button.pack(anchor="w", pady=(15, 0))
+        tk.Label(event_row, text=f"{date_text} • {event['name']}", bg="#2b2b2b", fg="white",
+                 font=("Arial", int(14 * scale)), padx=10, pady=6, anchor="w"
+                 ).pack(side="left", fill="x", expand=True)
+
+        if edit_mode:
+            add_edit_buttons(event_row, None, lambda e=event: delete_event(e))
 
     add_event_form = tk.Frame(events_frame, bg="#2b2b2b")
 
@@ -1477,8 +1780,8 @@ def build_events_section():
     event_status_label = tk.Label(add_event_form, text="", bg="#2b2b2b", font=("Arial", int(11 * scale)))
     event_status_label.pack(anchor="w", pady=(4, 0))
 
-    if add_event_form_open:
-        add_event_form.pack(fill="x", pady=(10, 0))
+    if edit_mode:
+        add_event_form.pack(fill="x", pady=(15, 0))
 
 #rebuild ui
 def rebuild_period_ui():
@@ -1491,7 +1794,9 @@ def rebuild_period_ui():
 
     update_title()
     update_days_left()
-    view_label.config(text=f"Current View: {PERIOD_LABELS[current_period]}")
+    view_label.config(
+        text=f"Current View: {PERIOD_LABELS[current_period]}" + ("   ✎ EDITING" if edit_mode else "")
+    )
     switch_button.config(text=f"Switch to {PERIOD_LABELS[other_period()]}")
 
     update_total_progress()
