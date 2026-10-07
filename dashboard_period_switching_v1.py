@@ -459,7 +459,6 @@ idea_title = tk.Label(
 idea_title.pack(anchor="w")
 
 idea_add_row = tk.Frame(idea_card, bg="#2b2b2b")
-idea_add_row.pack(fill="x", pady=(10, 0))
 
 idea_entry = tk.Entry(idea_add_row)
 idea_entry.pack(side="left", fill="x", expand=True)
@@ -486,10 +485,15 @@ def remove_idea(i):
     save_data()
     build_ideas_section()
 
-
 def build_ideas_section():
     for widget in idea_list_frame.winfo_children():
         widget.destroy()
+
+    if edit_mode:
+        # before= keeps the add box above the list instead of landing below it
+        idea_add_row.pack(fill="x", pady=(10, 0), before=idea_list_frame)
+    else:
+        idea_add_row.pack_forget()
 
     for i, text in enumerate(idea_list):
         row = tk.Frame(idea_list_frame, bg="#2b2b2b")
@@ -500,14 +504,14 @@ def build_ideas_section():
             anchor="w", wraplength=160, justify="left"
         ).pack(side="left", fill="x", expand=True)
 
-        tk.Button(row, text="×", command=lambda i=i: remove_idea(i)).pack(side="right")
-
+        if edit_mode:
+            tk.Button(row, text="×", command=lambda i=i: remove_idea(i)).pack(side="right")
 
 build_ideas_section()
 
 #write title summer
 title = tk.Label(root, text="", font=("Arial", int(30 * scale), "bold"))
-title.pack(pady=10)
+title.pack(pady=10) # before=main_frame
 
 
 def update_title():
@@ -518,7 +522,7 @@ def update_title():
 
 
 view_frame = tk.Frame(root, bg="#111111")
-view_frame.pack(pady=(0, 10))
+view_frame.pack(pady=(0, 10)) # before=main_frame
 
 view_label = tk.Label(view_frame, text="", bg="#111111", fg="white", font=("Arial", int(16 * scale), "bold"))
 view_label.pack(side="left", padx=(0, 15))
@@ -1105,7 +1109,7 @@ def build_progress_section():
 
         progress_entries.append((current_entry, goal_entry))
         progress_bars.append(bar)
-        
+
     if edit_mode:
         tk.Button(
             mini_progress_card, text="+ Add tracker", command=add_progress_item
@@ -1783,6 +1787,28 @@ def build_events_section():
     if edit_mode:
         add_event_form.pack(fill="x", pady=(15, 0))
 
+#click anywhere else to leave a text box
+def release_text_focus(event):
+    widget = event.widget
+    if not isinstance(widget, tk.Misc):
+        return
+    if widget.winfo_toplevel() is not root:
+        return  # leave pop-up dialogs and the year dropdown's list alone
+    if isinstance(widget, (tk.Entry, ttk.Entry, tk.Text)):
+        return  # clicking a text box should go INTO it, not out of it
+    root.focus_set()
+
+
+def leave_text_box(event):
+    """Escape does the same thing from the keyboard."""
+    widget = event.widget
+    if isinstance(widget, tk.Misc) and widget.winfo_toplevel() is root:
+        root.focus_set()
+
+root.bind_all("<Button-1>", release_text_focus, add="+")
+root.bind_all("<Escape>", leave_text_box, add="+")
+
+
 #rebuild ui
 def rebuild_period_ui():
     build_goal_section()
@@ -1791,6 +1817,7 @@ def rebuild_period_ui():
     build_events_section()
     build_stepped_goals_section()
     build_activities_panel()
+    build_ideas_section()
 
     update_title()
     update_days_left()
